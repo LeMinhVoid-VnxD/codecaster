@@ -39,6 +39,7 @@
         <video id="host-screen" autoplay muted playsinline></video>
         <video id="host-cam" autoplay muted playsinline></video>
         <div id="keylog-host" class="keylog-overlay"></div>
+        <div id="keyboard-host" class="virtual-keyboard"></div>
       </div>
       <div id="chat-panel" class="chat-panel hidden">
         <div class="chat-header">Chat</div>
@@ -54,6 +55,7 @@
       <button id="btn-switch-screen" class="btn control">Switch</button>
       <button id="btn-toggle-cam" class="btn control active">Cam</button>
       <button id="btn-toggle-mic" class="btn control active">Mic</button>
+      <button id="btn-toggle-keyboard" class="btn control active">Keyboard</button>
     </div>
   </div>
 
@@ -61,6 +63,7 @@
     <div class="top-bar">
       <span class="room-info">Watching: <strong id="viewer-room-id"></strong></span>
       <div class="top-actions">
+        <button id="btn-toggle-keyboard-vw" class="btn small active">Keyboard</button>
         <button id="btn-chat-toggle-vw" class="btn small">Chat</button>
         <button id="btn-leave-viewer" class="btn small danger">Leave</button>
       </div>
@@ -70,6 +73,7 @@
         <video id="viewer-screen" autoplay playsinline></video>
         <video id="viewer-cam" autoplay muted playsinline></video>
         <div id="keylog-viewer" class="keylog-overlay"></div>
+        <div id="keyboard-viewer" class="virtual-keyboard"></div>
       </div>
       <div id="chat-panel-vw" class="chat-panel hidden">
         <div class="chat-header">Chat</div>

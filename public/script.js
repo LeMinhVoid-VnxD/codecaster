@@ -27,6 +27,121 @@ let micStream = null;
 const viewerConns = {};
 const chatHistory = [];
 
+const KEY_LAYOUT = [
+  [
+    { code: "Backquote", label: "`" },
+    { code: "Digit1", label: "1" },
+    { code: "Digit2", label: "2" },
+    { code: "Digit3", label: "3" },
+    { code: "Digit4", label: "4" },
+    { code: "Digit5", label: "5" },
+    { code: "Digit6", label: "6" },
+    { code: "Digit7", label: "7" },
+    { code: "Digit8", label: "8" },
+    { code: "Digit9", label: "9" },
+    { code: "Digit0", label: "0" },
+    { code: "Minus", label: "-" },
+    { code: "Equal", label: "=" },
+    { code: "Backspace", label: "Back", extClass: "key-backspace" }
+  ],
+  [
+    { code: "Tab", label: "Tab", extClass: "key-tab" },
+    { code: "KeyQ", label: "Q" },
+    { code: "KeyW", label: "W" },
+    { code: "KeyE", label: "E" },
+    { code: "KeyR", label: "R" },
+    { code: "KeyT", label: "T" },
+    { code: "KeyY", label: "Y" },
+    { code: "KeyU", label: "U" },
+    { code: "KeyI", label: "I" },
+    { code: "KeyO", label: "O" },
+    { code: "KeyP", label: "P" },
+    { code: "BracketLeft", label: "[" },
+    { code: "BracketRight", label: "]" },
+    { code: "Backslash", label: "\\" }
+  ],
+  [
+    { code: "CapsLock", label: "Caps", extClass: "key-caps" },
+    { code: "KeyA", label: "A" },
+    { code: "KeyS", label: "S" },
+    { code: "KeyD", label: "D" },
+    { code: "KeyF", label: "F" },
+    { code: "KeyG", label: "G" },
+    { code: "KeyH", label: "H" },
+    { code: "KeyJ", label: "J" },
+    { code: "KeyK", label: "K" },
+    { code: "KeyL", label: "L" },
+    { code: "Semicolon", label: ";" },
+    { code: "Quote", label: "'" },
+    { code: "Enter", label: "Enter", extClass: "key-enter" }
+  ],
+  [
+    { code: "ShiftLeft", label: "Shift", extClass: "key-shift-left" },
+    { code: "KeyZ", label: "Z" },
+    { code: "KeyX", label: "X" },
+    { code: "KeyC", label: "C" },
+    { code: "KeyV", label: "V" },
+    { code: "KeyB", label: "B" },
+    { code: "KeyN", label: "N" },
+    { code: "KeyM", label: "M" },
+    { code: "Comma", label: "," },
+    { code: "Period", label: "." },
+    { code: "Slash", label: "/" },
+    { code: "ShiftRight", label: "Shift", extClass: "key-shift-right" }
+  ],
+  [
+    { code: "ControlLeft", label: "Ctrl", extClass: "key-ctrl" },
+    { code: "MetaLeft", label: "Win", extClass: "key-win" },
+    { code: "AltLeft", label: "Alt", extClass: "key-alt" },
+    { code: "Space", label: "Space", extClass: "key-space" },
+    { code: "AltRight", label: "Alt", extClass: "key-alt" },
+    { code: "ControlRight", label: "Ctrl", extClass: "key-ctrl" }
+  ]
+];
+
+function buildVirtualKeyboard(containerId) {
+  const container = $(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  KEY_LAYOUT.forEach((row) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "keyboard-row";
+    row.forEach((key) => {
+      const keyEl = document.createElement("div");
+      keyEl.className = "key" + (key.extClass ? " " + key.extClass : "");
+      keyEl.textContent = key.label;
+      keyEl.setAttribute("data-code", key.code);
+      rowEl.appendChild(keyEl);
+    });
+    container.appendChild(rowEl);
+  });
+}
+
+function highlightKey(containerId, code) {
+  const container = $(containerId);
+  if (!container) return;
+  
+  let targetCode = code;
+  if (code === "Control") targetCode = "ControlLeft";
+  if (code === "Shift") targetCode = "ShiftLeft";
+  if (code === "Alt") targetCode = "AltLeft";
+  if (code === "Meta" || code === "OS") targetCode = "MetaLeft";
+  
+  const keyEl = container.querySelector(`[data-code="${targetCode}"]`) || 
+                container.querySelector(`[data-code="${code}"]`);
+  
+  if (keyEl) {
+    keyEl.classList.add("active");
+    setTimeout(() => {
+      keyEl.classList.remove("active");
+    }, 200);
+  }
+}
+
+// Build keyboards on load
+buildVirtualKeyboard("keyboard-host");
+buildVirtualKeyboard("keyboard-viewer");
+
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
 
@@ -271,6 +386,11 @@ $("btn-copy-link").onclick = () => {
 };
 $("btn-leave-host").onclick = stopHost;
 $("btn-chat-toggle").onclick = () => $("chat-panel").classList.toggle("hidden");
+$("btn-toggle-keyboard").onclick = function () {
+  const kb = $("keyboard-host");
+  kb.classList.toggle("hidden");
+  this.classList.toggle("active");
+};
 
 // ---- Switch screen source ----
 $("btn-switch-screen").onclick = async function () {
@@ -314,6 +434,10 @@ const MAX_KEYLOG = 200;
 document.addEventListener("keydown", (e) => {
   if (role !== "host" || !screenStream) return;
 
+  // Highlight key on host virtual keyboard
+  highlightKey("keyboard-host", e.code);
+  broadcastKeypress(e.code);
+
   if (e.ctrlKey || e.metaKey) return;
   if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
 
@@ -352,6 +476,12 @@ function updateKeylog() {
 function broadcastKeylog(log) {
   for (const c of Object.values(viewerConns)) {
     try { c.send({ type: "keylog", log }); } catch (e) {}
+  }
+}
+
+function broadcastKeypress(code) {
+  for (const c of Object.values(viewerConns)) {
+    try { c.send({ type: "keypress", code }); } catch (e) {}
   }
 }
 
@@ -431,6 +561,9 @@ function startViewer(code) {
       if (data.type === "keylog") {
         keylogViewer.textContent = (data.log || []).join("");
       }
+      if (data.type === "keypress") {
+        highlightKey("keyboard-viewer", data.code);
+      }
     });
 
     hostConn.on("close", () => {
@@ -487,6 +620,11 @@ function stopViewer() {
 
 $("btn-leave-viewer").onclick = stopViewer;
 $("btn-chat-toggle-vw").onclick = () => $("chat-panel-vw").classList.toggle("hidden");
+$("btn-toggle-keyboard-vw").onclick = function () {
+  const kb = $("keyboard-viewer");
+  kb.classList.toggle("hidden");
+  this.classList.toggle("active");
+};
 
 /* ================================================================
  *  CHAT
