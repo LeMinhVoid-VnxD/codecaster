@@ -83,15 +83,35 @@ async function startHost(id) {
 }
 
 function peerOptions() {
+  const isHttps = window.location.protocol === "https:";
+  const port = isHttps ? 443 : (parseInt(window.location.port) || 80);
   return {
     debug: 2,
     host: window.location.hostname,
-    port: window.location.protocol === "https:" ? 443 : parseInt(window.location.port) || 80,
+    port: port,
     path: "/peerjs",
+    secure: isHttps,
     config: {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
       ],
     },
   };
@@ -325,15 +345,27 @@ function startViewer(code) {
     hostConn.on("data", (data) => {
       if (data.type === "stream-ready") {
         viewerStatus.textContent = "Connecting...";
-        const call = peer.call(roomId);
+        // Must pass a MediaStream to peer.call() for WebRTC negotiation to work
+        const emptyStream = new MediaStream();
+        const call = peer.call(roomId, emptyStream);
         if (call) {
-          call.on("stream", onViewerStream);
+          call.on("stream", (remoteStream) => {
+            // Only process if we actually have tracks
+            if (remoteStream && remoteStream.getTracks().length > 0) {
+              onViewerStream(remoteStream);
+            } else {
+              viewerStatus.textContent = "Waiting for stream...";
+            }
+          });
           call.on("close", () => {
             viewerStatus.textContent = "Stream ended.";
           });
           call.on("error", (e) => {
-            viewerStatus.textContent = "Stream error.";
+            console.error("Call error:", e);
+            viewerStatus.textContent = "Stream error: " + (e.message || e);
           });
+        } else {
+          viewerStatus.textContent = "Failed to initiate call. Please retry.";
         }
       }
       if (data.type === "chat-history") {
