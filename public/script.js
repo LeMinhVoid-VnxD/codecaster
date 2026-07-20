@@ -49,39 +49,8 @@ $("btn-join").onclick = () => {
 };
 
 /* ================================================================
- *  HOST
+ *  PEER OPTIONS - với đầy đủ TURN servers để xuyên NAT
  * ================================================================ */
-async function startHost(id) {
-  role = "host";
-  roomId = id;
-  hide(lobby);
-  show(roomHost);
-  hostRoomId.textContent = id;
-
-  try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true, audio: true,
-    });
-    hostScreen.srcObject = screenStream;
-    screenStream.getVideoTracks()[0].onended = () => stopHost();
-
-    camStream = await navigator.mediaDevices.getUserMedia({
-      video: true, audio: false,
-    });
-    hostCam.srcObject = camStream;
-
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) { console.warn("Mic unavailable:", e.message); }
-
-    startPeer(id);
-  } catch (err) {
-    console.error(err);
-    alert("Could not access screen or camera: " + err.message);
-    stopHost();
-  }
-}
-
 function peerOptions() {
   const isHttps = window.location.protocol === "https:";
   const port = isHttps ? 443 : (parseInt(window.location.port) || 80);
@@ -112,33 +81,115 @@ function peerOptions() {
           username: "openrelayproject",
           credential: "openrelayproject",
         },
+        {
+          urls: "turns:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
       ],
     },
   };
+}
+
+/* ================================================================
+ *  HOST
+ * ================================================================ */
+async function startHost(id) {
+  role = "host";
+  roomId = id;
+  hide(lobby);
+  show(roomHost);
+  hostRoomId.textContent = id;
+
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30 } },
+      audio: true,
+    });
+    hostScreen.srcObject = screenStream;
+    hostScreen.play().catch(() => {});
+    screenStream.getVideoTracks()[0].onended = () => stopHost();
+
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: true, audio: false,
+      });
+      hostCam.srcObject = camStream;
+      hostCam.play().catch(() => {});
+    } catch (e) {
+      console.warn("Camera unavailable:", e.message);
+    }
+
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) { console.warn("Mic unavailable:", e.message); }
+
+    startPeer(id);
+  } catch (err) {
+    console.error(err);
+    alert("Could not access screen or camera: " + err.message);
+    stopHost();
+  }
+}
+
+/* Tạo combined stream để gửi cho viewer */
+function buildHostStream() {
+  const out = new MediaStream();
+  if (screenStream) screenStream.getTracks().forEach((t) => out.addTrack(t));
+  if (camStream) camStream.getTracks().forEach((t) => out.addTrack(t));
+  if (micStream) micStream.getTracks().forEach((t) => out.addTrack(t));
+  return out;
+}
+
+/* HOST calls VIEWER - đây là pattern đúng để push stream */
+function callViewer(viewerPeerId) {
+  console.log("[Host] Calling viewer:", viewerPeerId);
+  const out = buildHostStream();
+  const call = peer.call(viewerPeerId, out);
+  if (!call) {
+    console.error("[Host] peer.call returned null for", viewerPeerId);
+    return;
+  }
+  viewerCalls[viewerPeerId] = call;
+  call.on("close", () => {
+    delete viewerCalls[viewerPeerId];
+    console.log("[Host] Call closed with", viewerPeerId);
+  });
+  call.on("error", (e) => {
+    console.error("[Host] Call error with", viewerPeerId, e);
+    delete viewerCalls[viewerPeerId];
+  });
 }
 
 function startPeer(id) {
   peer = new Peer(id, peerOptions());
 
   peer.on("open", () => {
+    console.log("[Host] Peer open, ID:", id);
     const link = window.location.origin + "?join=" + id;
     navigator.clipboard.writeText(link).then(() => {
       $("btn-copy-link").textContent = "Copied!";
       setTimeout(() => ($("btn-copy-link").textContent = "Copy Link"), 3000);
-    });
+    }).catch(() => {});
   });
 
   peer.on("connection", (conn) => {
     const vid = conn.peer;
     viewerConns[vid] = conn;
     updateViewerCount();
+    console.log("[Host] Viewer connected:", vid);
 
-    conn.send({ type: "chat-history", messages: chatHistory });
+    // Gửi chat history cho viewer mới
+    conn.on("open", () => {
+      conn.send({ type: "chat-history", messages: chatHistory });
+      // HOST chủ động gọi viewer ngay sau khi data channel mở
+      callViewer(vid);
+    });
 
     conn.on("data", (data) => {
       if (data.type === "request-stream") {
-        // Viewer will initiate the call - just tell them we're ready
-        conn.send({ type: "stream-ready" });
+        // Viewer yêu cầu stream lại (ví dụ sau khi stream bị gián đoạn)
+        callViewer(vid);
       }
       if (data.type === "chat") {
         broadcastChat({
@@ -153,23 +204,16 @@ function startPeer(id) {
     conn.on("close", () => {
       delete viewerConns[vid];
       updateViewerCount();
+      console.log("[Host] Viewer disconnected:", vid);
+    });
+
+    conn.on("error", (e) => {
+      console.error("[Host] Connection error with viewer:", vid, e);
     });
   });
 
-  // Viewer initiated a call -> answer with our combined stream
-  peer.on("call", (call) => {
-    const out = new MediaStream();
-    screenStream.getTracks().forEach((t) => out.addTrack(t));
-    if (camStream) camStream.getTracks().forEach((t) => out.addTrack(t));
-    if (micStream) micStream.getTracks().forEach((t) => out.addTrack(t));
-    call.answer(out);
-    const vid = call.peer;
-    viewerCalls[vid] = call;
-    call.on("close", () => { delete viewerCalls[vid]; });
-    call.on("error", () => { delete viewerCalls[vid]; });
-  });
-
   peer.on("error", (err) => {
+    console.error("[Host] Peer error:", err.type, err);
     if (err.type === "unavailable-id") {
       lobbyError.textContent = "Room name taken, try again.";
       stopHost();
@@ -181,7 +225,7 @@ function broadcastChat(msg) {
   chatHistory.push(msg);
   if (chatHistory.length > 100) chatHistory.shift();
   for (const c of Object.values(viewerConns)) {
-    c.send({ type: "chat", msg });
+    try { c.send({ type: "chat", msg }); } catch (e) {}
   }
   addChatMessage(msg);
 }
@@ -191,7 +235,7 @@ function stopHost() {
   stopTracks(camStream);
   stopTracks(micStream);
   screenStream = camStream = micStream = null;
-  Object.values(viewerCalls).forEach((c) => c.close());
+  Object.values(viewerCalls).forEach((c) => { try { c.close(); } catch (e) {} });
   for (const k in viewerCalls) delete viewerCalls[k];
   if (peer) peer.destroy();
   peer = null;
@@ -223,7 +267,7 @@ $("btn-toggle-mic").onclick = function () {
 };
 $("btn-copy-link").onclick = () => {
   const link = window.location.origin + "?join=" + roomId;
-  navigator.clipboard.writeText(link);
+  navigator.clipboard.writeText(link).catch(() => {});
 };
 $("btn-leave-host").onclick = stopHost;
 $("btn-chat-toggle").onclick = () => $("chat-panel").classList.toggle("hidden");
@@ -233,7 +277,8 @@ $("btn-switch-screen").onclick = async function () {
   if (!screenStream) return;
   try {
     const newStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true, audio: true,
+      video: { frameRate: { ideal: 30 } },
+      audio: true,
     });
     const newVideo = newStream.getVideoTracks()[0];
     const newAudio = newStream.getAudioTracks()[0];
@@ -248,15 +293,18 @@ $("btn-switch-screen").onclick = async function () {
     if (oldAudio) oldAudio.stop();
 
     hostScreen.srcObject = screenStream;
+    hostScreen.play().catch(() => {});
     newVideo.onended = () => stopHost();
 
-    // Close old calls, viewers will re-call
-    Object.values(viewerCalls).forEach((c) => c.close());
+    // Re-call tất cả viewers với stream mới
+    Object.values(viewerCalls).forEach((c) => { try { c.close(); } catch (e) {} });
     for (const k in viewerCalls) delete viewerCalls[k];
-    for (const c of Object.values(viewerConns)) {
-      c.send({ type: "stream-ready" });
+    for (const vid of Object.keys(viewerConns)) {
+      setTimeout(() => callViewer(vid), 500);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Switch screen error:", e);
+  }
 };
 
 // ---- Keylogger ----
@@ -303,27 +351,49 @@ function updateKeylog() {
 
 function broadcastKeylog(log) {
   for (const c of Object.values(viewerConns)) {
-    c.send({ type: "keylog", log });
+    try { c.send({ type: "keylog", log }); } catch (e) {}
   }
 }
 
 /* ================================================================
  *  VIEWER
  * ================================================================ */
-function onViewerStream(remoteStream) {
-  const vids = remoteStream.getVideoTracks();
-  const audios = remoteStream.getAudioTracks();
 
-  if (vids.length > 0) {
-    const screen = new MediaStream();
-    screen.addTrack(vids[0]);
-    audios.forEach((t) => screen.addTrack(t));
-    viewerScreen.srcObject = screen;
+/* Xử lý stream nhận được từ host - cẩn thận với track timing */
+function onViewerStream(remoteStream) {
+  console.log("[Viewer] Got stream, tracks:", remoteStream.getTracks().map(t => t.kind + ":" + t.readyState));
+  viewerStatus.textContent = "";
+
+  // Gán trực tiếp toàn bộ stream cho screen (đơn giản nhất, tránh track splitting bugs)
+  viewerScreen.srcObject = remoteStream;
+  viewerScreen.play().catch((e) => {
+    console.warn("[Viewer] Autoplay blocked, user interaction needed:", e);
+    viewerStatus.textContent = "Click anywhere to start stream";
+    const resume = () => {
+      viewerScreen.play().catch(() => {});
+      document.removeEventListener("click", resume);
+      viewerStatus.textContent = "";
+    };
+    document.addEventListener("click", resume, { once: true });
+  });
+
+  // Lắng nghe tracks thêm vào sau (WebRTC có thể add track theo từng đợt)
+  remoteStream.addEventListener("addtrack", (evt) => {
+    console.log("[Viewer] New track added:", evt.track.kind);
+    // Nếu là video track thứ 2 (webcam), assign cho viewerCam
+    const videoTracks = remoteStream.getVideoTracks();
+    if (videoTracks.length > 1 && evt.track.kind === "video") {
+      viewerCam.srcObject = new MediaStream([videoTracks[1]]);
+      viewerCam.play().catch(() => {});
+    }
+  });
+
+  // Tách cam nếu có sẵn 2 video tracks
+  const videoTracks = remoteStream.getVideoTracks();
+  if (videoTracks.length > 1) {
+    viewerCam.srcObject = new MediaStream([videoTracks[1]]);
+    viewerCam.play().catch(() => {});
   }
-  if (vids.length > 1) {
-    viewerCam.srcObject = new MediaStream([vids[1]]);
-  }
-  viewerStatus.textContent = vids.length > 0 ? "" : "No video tracks received.";
 }
 
 function startViewer(code) {
@@ -332,42 +402,25 @@ function startViewer(code) {
   hide(lobby);
   show(roomViewer);
   viewerRoomId.textContent = code;
+  viewerStatus.textContent = "Connecting...";
 
   peer = new Peer(undefined, peerOptions());
 
-  peer.on("open", () => {
-    hostConn = peer.connect(code);
+  peer.on("open", (myId) => {
+    console.log("[Viewer] Peer open, ID:", myId);
+    viewerStatus.textContent = "Connected to server, joining room...";
+
+    // Kết nối data channel đến host
+    hostConn = peer.connect(code, { reliable: true });
+
     hostConn.on("open", () => {
+      console.log("[Viewer] Data channel open to host");
+      viewerStatus.textContent = "Waiting for stream from host...";
+      // Thông báo cho host biết ta đã sẵn sàng nhận stream
       hostConn.send({ type: "request-stream" });
-      viewerStatus.textContent = "Requesting stream...";
     });
 
     hostConn.on("data", (data) => {
-      if (data.type === "stream-ready") {
-        viewerStatus.textContent = "Connecting...";
-        // Must pass a MediaStream to peer.call() for WebRTC negotiation to work
-        const emptyStream = new MediaStream();
-        const call = peer.call(roomId, emptyStream);
-        if (call) {
-          call.on("stream", (remoteStream) => {
-            // Only process if we actually have tracks
-            if (remoteStream && remoteStream.getTracks().length > 0) {
-              onViewerStream(remoteStream);
-            } else {
-              viewerStatus.textContent = "Waiting for stream...";
-            }
-          });
-          call.on("close", () => {
-            viewerStatus.textContent = "Stream ended.";
-          });
-          call.on("error", (e) => {
-            console.error("Call error:", e);
-            viewerStatus.textContent = "Stream error: " + (e.message || e);
-          });
-        } else {
-          viewerStatus.textContent = "Failed to initiate call. Please retry.";
-        }
-      }
       if (data.type === "chat-history") {
         $("chat-messages-vw").innerHTML = "";
         data.messages.forEach((m) => addChatMessage(m));
@@ -383,15 +436,49 @@ function startViewer(code) {
     hostConn.on("close", () => {
       viewerStatus.textContent = "Host disconnected.";
     });
+
+    hostConn.on("error", (e) => {
+      console.error("[Viewer] Data channel error:", e);
+      viewerStatus.textContent = "Connection error.";
+    });
+  });
+
+  // HOST sẽ gọi viewer - lắng nghe incoming calls
+  peer.on("call", (call) => {
+    console.log("[Viewer] Incoming call from host");
+    viewerStatus.textContent = "Receiving stream...";
+    // Answer không cần stream (viewer chỉ nhận)
+    call.answer();
+
+    call.on("stream", (remoteStream) => {
+      console.log("[Viewer] Stream received from host");
+      onViewerStream(remoteStream);
+    });
+
+    call.on("close", () => {
+      console.log("[Viewer] Call closed");
+      viewerStatus.textContent = "Stream ended. Waiting for host to re-stream...";
+      viewerScreen.srcObject = null;
+    });
+
+    call.on("error", (e) => {
+      console.error("[Viewer] Call error:", e);
+      viewerStatus.textContent = "Stream error: " + (e.message || e);
+    });
   });
 
   peer.on("error", (err) => {
-    viewerStatus.textContent = "Connection error. Room may not exist.";
+    console.error("[Viewer] Peer error:", err.type, err);
+    if (err.type === "peer-unavailable") {
+      viewerStatus.textContent = "Room not found. Check the room code.";
+    } else {
+      viewerStatus.textContent = "Connection error: " + err.type;
+    }
   });
 }
 
 function stopViewer() {
-  if (hostConn) hostConn.close();
+  if (hostConn) { try { hostConn.close(); } catch (e) {} }
   if (peer) peer.destroy();
   peer = null;
   hostConn = null;
@@ -419,7 +506,7 @@ function sendChat() {
     };
     broadcastChat(msg);
   } else {
-    hostConn.send({ type: "chat", text });
+    try { hostConn.send({ type: "chat", text }); } catch (e) {}
   }
   input.focus();
 }
