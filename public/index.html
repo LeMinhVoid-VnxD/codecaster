@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeCaster</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="lobby">
+    <div class="lobby-card">
+      <h1>CodeCaster</h1>
+      <p class="subtitle">Peer-to-peer code livestreaming</p>
+      <div class="lobby-actions">
+        <button id="btn-create" class="btn primary">Create Room</button>
+        <div class="divider"><span>or</span></div>
+        <div class="join-row">
+          <input id="input-room-id" type="text" placeholder="Enter room code..." />
+          <button id="btn-join" class="btn secondary">Join</button>
+        </div>
+      </div>
+      <p id="lobby-error" class="error hidden"></p>
+    </div>
+  </div>
+
+  <div id="room-host" class="hidden">
+    <div class="top-bar">
+      <span class="room-info">Room: <strong id="host-room-id"></strong></span>
+      <span class="viewer-count" id="viewer-count">0 viewers</span>
+      <div class="top-actions">
+        <button id="btn-chat-toggle" class="btn small">Chat</button>
+        <button id="btn-copy-link" class="btn small">Copy Link</button>
+        <button id="btn-leave-host" class="btn small danger">Leave</button>
+      </div>
+    </div>
+    <div class="main-area">
+      <div class="stream-area">
+        <video id="host-screen" autoplay muted playsinline></video>
+        <video id="host-cam" autoplay muted playsinline></video>
+        <div id="keylog-host" class="keylog-overlay"></div>
+      </div>
+      <div id="chat-panel" class="chat-panel hidden">
+        <div class="chat-header">Chat</div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Type a message..." />
+          <button id="btn-chat-send" class="btn small">Send</button>
+        </div>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="btn-toggle-screen" class="btn control active">Screen</button>
+      <button id="btn-switch-screen" class="btn control">Switch</button>
+      <button id="btn-toggle-cam" class="btn control active">Cam</button>
+      <button id="btn-toggle-mic" class="btn control active">Mic</button>
+    </div>
+  </div>
+
+  <div id="room-viewer" class="hidden">
+    <div class="top-bar">
+      <span class="room-info">Watching: <strong id="viewer-room-id"></strong></span>
+      <div class="top-actions">
+        <button id="btn-chat-toggle-vw" class="btn small">Chat</button>
+        <button id="btn-leave-viewer" class="btn small danger">Leave</button>
+      </div>
+    </div>
+    <div class="main-area">
+      <div class="stream-area">
+        <video id="viewer-screen" autoplay muted playsinline></video>
+        <video id="viewer-cam" autoplay muted playsinline></video>
+        <div id="keylog-viewer" class="keylog-overlay"></div>
+      </div>
+      <div id="chat-panel-vw" class="chat-panel hidden">
+        <div class="chat-header">Chat</div>
+        <div id="chat-messages-vw" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input-vw" type="text" placeholder="Type a message..." />
+          <button id="btn-chat-send-vw" class="btn small">Send</button>
+        </div>
+      </div>
+    </div>
+    <div class="status-msg" id="viewer-status">Connecting to stream...</div>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

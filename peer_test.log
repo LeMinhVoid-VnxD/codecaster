@@ -1,0 +1,12 @@
+function $123f4982a51872b4$export$f99d31af51f48b1e(options = {}, callback) {
+    const app = (0, ($parcel$interopDefault($cl6Iw$express)))();
+    let newOptions = {
+        ...(0, $629a620fdd8149f9$export$2e2bcd8739ae039),
+        ...options
+    };
+    const port = newOptions.port;
+    const host = newOptions.host;
+    let server;
+    const { ssl: ssl , ...restOptions } = newOptions;
+    if (ssl && Object.keys(ssl).length) {
+        server = (0, ($parcel$interopDefault($cl6Iw$nodehttps))).create

@@ -1,0 +1,13 @@
+{
+  "name": "codecaster",
+  "version": "1.0.0",
+  "description": "P2P code livestreaming with screen share + camera + mic + chat",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "peer": "^1.0.0"
+  }
+}
